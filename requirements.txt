@@ -1,0 +1,8 @@
+Flask
+pandas
+joblib
+scikit-learn
+imblearn
+xgboost
+openpyxl
+gunicorn 
