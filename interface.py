@@ -31,14 +31,14 @@ def clean_text(text):
 def predict_hierarchical_fast(desc):
     x_input = vectorizer.transform([desc])
 
-    # Prédiction Level1 (encodé → texte)
+    # Prédiction Level1
     l1_pred_enc = clf_l1.predict(x_input)[0]
     try:
         l1_label = le_level1.inverse_transform([l1_pred_enc])[0]
     except ValueError:
         return "Label1 inconnu", "Label2 inconnu"
 
-    # Prédiction Level2 si possible
+    # Prédiction Level2
     if l1_label not in models_level2:
         return l1_label, "Pas de sous-catégorie disponible"
 
@@ -53,51 +53,17 @@ def predict_hierarchical_fast(desc):
 
     return l1_label, l2_label_text
 
+
 # === PAGE PRINCIPALE ===
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
-    if request.method == "POST":
-        file = request.files["file"]
-        if file:
-            filename = file.filename
-            filepath = os.path.join(UPLOAD_FOLDER, filename)
-            file.save(filepath)
-
-            # Lecture du fichier
-            if filename.endswith(".xlsx"):
-                df = pd.read_excel(filepath)
-            elif filename.endswith(".csv"):
-                df = pd.read_csv(filepath)
-            else:
-                return "Format non supporté. Utilise .xlsx ou .csv"
-
-            if "description" not in df.columns:
-                return "Le fichier doit contenir une colonne 'description'"
-
-            # Prédictions
-            cleaned = df["description"].astype(str).apply(clean_text)
-            level1_preds, level2_preds = [], []
-
-            for desc in cleaned:
-                l1, l2 = predict_hierarchical_fast(desc)
-                level1_preds.append(l1)
-                level2_preds.append(l2)
-
-            df["Level 1 (catégorie)"] = level1_preds
-            df["Level 2 (sous-catégorie)"] = level2_preds
-
-            output_path = os.path.join(RESULT_FOLDER, f"result_{filename.split('.')[0]}.xlsx")
-            df.to_excel(output_path, index=False)
-
-            return send_file(output_path, as_attachment=True)
-
     return render_template("index.html")
 
-# === PRÉDICTION À PARTIR D’UNE PHRASE ===
-@app.route("/predict", methods=["POST"])
-def predict_text():
-    desc = request.form.get("description")
 
+# === CLASSIFICATION PAR TEXTE ===
+@app.route("/classify_text", methods=["POST"])
+def classify_text():
+    desc = request.form.get("input_text")  # correspond à name="input_text" dans index.html
     if not desc:
         return redirect("/")
 
@@ -106,6 +72,48 @@ def predict_text():
 
     return render_template("index.html", prediction={"level1": l1_label, "level2": l2_label})
 
+
+# === CLASSIFICATION PAR FICHIER ===
+@app.route("/classify_file", methods=["POST"])
+def classify_file():
+    file = request.files["file"]
+    if not file:
+        return redirect("/")
+
+    filename = file.filename
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+
+    # Lecture du fichier
+    if filename.endswith(".xlsx"):
+        df = pd.read_excel(filepath)
+    elif filename.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        return "Format non supporté. Utilise .xlsx ou .csv"
+
+    if "description" not in df.columns:
+        return "Le fichier doit contenir une colonne 'description'"
+
+    # Prédictions
+    cleaned = df["description"].astype(str).apply(clean_text)
+    level1_preds, level2_preds = [], []
+
+    for desc in cleaned:
+        l1, l2 = predict_hierarchical_fast(desc)
+        level1_preds.append(l1)
+        level2_preds.append(l2)
+
+    df["Level 1 (catégorie)"] = level1_preds
+    df["Level 2 (sous-catégorie)"] = level2_preds
+
+    output_path = os.path.join(RESULT_FOLDER, f"result_{filename.split('.')[0]}.xlsx")
+    df.to_excel(output_path, index=False)
+
+    return send_file(output_path, as_attachment=True)
+
+
 # === LANCEMENT DE L'APPLICATION ===
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))  # nécessaire pour Render
+    app.run(host="0.0.0.0", port=port, debug=True)
